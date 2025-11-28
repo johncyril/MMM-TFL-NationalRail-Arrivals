@@ -1,4 +1,4 @@
-/* TfL Bus Atrival Predictions */
+/* TfL and National Rail Arrival Predictions */
 
 /* Magic Mirror
  * Module: MMM-TFL-Arrivals
@@ -12,34 +12,50 @@ module.exports = NodeHelper.create({
   start: function () {
     console.log("MMM-TFL-Arrivals helper started ...");
   },
-  /* getTimetable()
-   * Requests new data from TfL API.
-   * Sends data back via socket on succesfull response.
-   */
-  getTimetable: async function (url) {
-    try {
-      const response = await fetch(url);
 
-      if (response.ok) {
-        const data = await response.json();
-        this.sendSocketNotification("TFL_ARRIVALS_DATA", {
-          data,
-          url,
-        });
-      } else {
-        console.error("MMM-TFL-Arrivals: API returned non-200 status", response.status);
-        this.sendSocketNotification("TFL_ARRIVALS_DATA", { data: null, url });
-      }
-    } catch (error) {
-      console.error("MMM-TFL-Arrivals: Error fetching data", error.message);
-      this.sendSocketNotification("TFL_ARRIVALS_DATA", { data: null, url });
+  getTFLTimetable: async function (url, notification) {
+    const notif = notification.replace(/^GET_/, "");
+    try {
+      console.log("Fetching TFL:", url);
+
+      const { data } = await axios.get(url);
+
+      this.sendSocketNotification(notif, { data, url });
+
+    } catch (err) {
+      console.error("TFL error:", err.message);
+      this.sendSocketNotification(notif, { data: null, url });
     }
   },
 
-  //Subclass socketNotificationReceived received.
+  getNRTimetable: async function (url, apiKey, notification) {
+    const notif = notification.replace(/^GET_/, "");
+
+    try {
+      console.log("Fetching National Rail:", url);
+
+      const { data } = await axios.get(url, {
+        headers: {
+          "x-apikey": apiKey
+        }
+      });
+
+      this.sendSocketNotification(notif, { data, url });
+
+    } catch (err) {
+      console.error("NR error:", err.response?.status, err.response?.data);
+      this.sendSocketNotification(notif, { data: null, url });
+    }
+  },
+
   socketNotificationReceived: function (notification, payload) {
+
     if (notification === "GET_TFL_ARRIVALS_DATA") {
-      this.getTimetable(payload.url);
+      this.getTFLTimetable(payload.url, notification);
+    }
+
+    if (notification === "GET_NR_ARRIVALS_DATA") {
+      this.getNRTimetable(payload.url, payload.apiKey, notification);
     }
   },
 });

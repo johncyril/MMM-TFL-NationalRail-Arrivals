@@ -6,7 +6,9 @@ Module.register("MMM-TFL-Arrivals", {
   defaults: {
     app_id: "",
     app_key: "",
+    ldbws_key: "", // national rail's LDBWS API (consumer) Key, from the specification tab of the Live Departure Board subscription
     naptanId: "", // StopPoint id
+    crsId: "", // CRS station Id for national rail stations
     updateInterval: 60 * 1 * 1000, // Every minute
     animationSpeed: 2000,
     fade: true,
@@ -24,21 +26,34 @@ Module.register("MMM-TFL-Arrivals", {
     }
     // Set up the local values, here we construct the request url to use
     this.apiBase = "https://api.tfl.gov.uk/StopPoint/";
+    this.apiBaseNationalRail = "https://api1.raildata.org.uk/1010-live-departure-board-dep/LDBWS/api/20220120/GetDepBoardWithDetails/";
     this.loaded = false;
     this.buses = {};
+    this.trains = {};
     this.scheduleUpdate(this.config.initialLoadDelay);
     this.updateTimer = null;
-    this.url = encodeURI(
+    this.urlTfl = encodeURI(
       this.apiBase + this.config.naptanId + "/arrivals" + this.getParams()
     );
+    this.urlNationalRail = encodeURI(
+      this.apiBaseNationalRail + this.config.crsId + "?numRows=10&timeOffset=0&timeWindow=120"
+    );
+
     if (this.config.debug) {
-      Log.info(this.url);
+      Log.info(this.urlTfl);
+      Log.info(this.urlNationalRail);
     }
-    this.updateBusInfo();
+    this.updateInfo(this);
   },
-  // updateBusInfo
-  updateBusInfo: function () {
-    this.sendSocketNotification("GET_TFL_ARRIVALS_DATA", { url: this.url });
+  // updateInfo
+  updateInfo: function (self) {
+    // if a natpan is set, then the TFL API is called, otherwise we'll call the National Rail API
+    if (self.config.naptanId) {
+      self.sendSocketNotification("GET_TFL_ARRIVALS_DATA", { url: self.urlTfl });
+    }
+    if (self.config.crsId) {
+      self.sendSocketNotification("GET_NR_ARRIVALS_DATA", {url: self.urlNationalRail});
+    }
   },
   getStyles: function () {
     return ["MMM-TFL-Arrivals.css", "font-awesome.css"];
@@ -55,28 +70,36 @@ Module.register("MMM-TFL-Arrivals", {
   getDom: function () {
     const wrapper = document.createElement("div");
 
-    if (this.config.naptanId === "") {
+    if (this.config.naptanId === "" && this.config.crsId === "") {
       wrapper.innerHTML =
-        "Please set the station naptan code: " + this.atcocode + ".";
+        "Please set a station naptan or crs code: " + this.atcocode + ".";
       wrapper.className = "dimmed light small";
       return wrapper;
     }
 
-    if (this.config.app_id === "") {
-      wrapper.innerHTML = "Please set the application ID: " + this.app_id + ".";
-      wrapper.className = "dimmed light small";
-      return wrapper;
+    if (this.config.naptanId) {
+        if (this.config.app_id === "") {
+          wrapper.innerHTML = "Please set the application ID: " + this.app_id + ".";
+          wrapper.className = "dimmed light small";
+          return wrapper;
+        }
+
+        if (this.config.app_key === "") {
+          wrapper.innerHTML =
+            "Please set the application key: " + this.app_key + ".";
+          wrapper.className = "dimmed light small";
+          return wrapper;
+        }
     }
 
-    if (this.config.app_key === "") {
-      wrapper.innerHTML =
-        "Please set the application key: " + this.app_key + ".";
-      wrapper.className = "dimmed light small";
-      return wrapper;
+    if (this.config.crsId) {
+        if (this.config.ldbws_key === "") {
+          wrapper.innerHTML = "Please set the LDBWS API Key: " + this.ldbws_key + ".";
+        }
     }
 
     if (!this.loaded) {
-      wrapper.innerHTML = "Loading bus arrival predictions...";
+      wrapper.innerHTML = "Loading transport arrival predictions...";
       wrapper.className = "dimmed light small";
       return wrapper;
     }
@@ -281,8 +304,12 @@ Module.register("MMM-TFL-Arrivals", {
   },
   // Process data returned
   socketNotificationReceived: function (notification, payload) {
-    if (notification === "TFL_ARRIVALS_DATA" && payload.url === this.url) {
+    if (notification === "TFL_ARRIVALS_DATA" && payload.url === this.urlTfl) {
       this.processBuses(payload.data);
+      this.scheduleUpdate(this.config.updateInterval);
+    }
+    else if (notification == "NR_ARRIVALS_DATA" && payload.url == this.urlNationalRail) {
+      this.processTrains(payload.data);
       this.scheduleUpdate(this.config.updateInterval);
     }
   },
