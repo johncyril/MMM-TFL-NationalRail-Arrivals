@@ -11,6 +11,7 @@ Module.register("MMM-TFL-Arrivals", {
     ldbws_key: "", // national rail's LDBWS API (consumer) Key, from the specification tab of the Live Departure Board subscription
     naptanId: "", // StopPoint id
     crsId: "", // CRS station Id for national rail stations
+    excludedDestinationCrsIds: [], // CRS station Id for routes we want to exclude
     updateInterval: 60 * 1 * 1000, // Every minute
     animationSpeed: 2000,
     fade: true,
@@ -47,7 +48,7 @@ Module.register("MMM-TFL-Arrivals", {
       this.urlNR = encodeURI(
         this.apiBaseNR +
         this.config.crsId +
-        "?numRows=10&timeOffset=0&timeWindow=120"
+        "?numRows=20&timeOffset=0&timeWindow=120"
       );
     }
 
@@ -209,13 +210,6 @@ Module.register("MMM-TFL-Arrivals", {
     }
     row.appendChild(timeCell);
 
-    // Platform (optional)
-    if (arrival.platform) {
-      const platCell = document.createElement("td");
-      platCell.innerHTML = arrival.platform;
-      row.appendChild(platCell);
-    }
-
     table.appendChild(row);
   }
 },
@@ -264,7 +258,11 @@ Module.register("MMM-TFL-Arrivals", {
 
   this.nr = {
     timestamp: moment().format("LLL"),
-    data: services.map(service => {
+    data: services.filter(service =>
+    {
+      const destinationCrs = service.destination[0]?.crs || "";
+      return !this.config.excludedDestinationCrsIds.includes(destinationCrs);
+    }).map(service => {
       const origin = service.origin[0]?.locationName || "";
       const destination = service.destination[0]?.locationName || "";
       const std = service.std; // Scheduled Time of Departure
@@ -285,7 +283,7 @@ Module.register("MMM-TFL-Arrivals", {
 
       return {
       stopName: data.locationName || this.config.crsId, // Use actual station name
-      routeName: origin + " → " + destination,
+      routeName: std,
       direction: destination,
       expectedDeparture: etd,
       timeToStation,
