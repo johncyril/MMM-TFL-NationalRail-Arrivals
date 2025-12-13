@@ -57,6 +57,13 @@ Module.register("MMM-TFL-Arrivals", {
       Log.info("NR URL:", this.urlNR);
     }
 
+    // Send config to helper using INIT. This allows us to have multiple instances of the plugin; one for each stop
+    this.sendSocketNotification("INIT", {
+    instanceId: this.identifier, // unique per module instance
+    config: this.config,
+    urls: { tfl: this.urlTfl, nr: this.urlNR }
+  });
+
     this.scheduleUpdate(this.config.initialLoadDelay);
 
     // Force initial fetch
@@ -68,12 +75,14 @@ Module.register("MMM-TFL-Arrivals", {
 
     if (this.config.naptanId) {
       this.sendSocketNotification("GET_TFL_ARRIVALS_DATA", {
+        instanceId: this.identifier,
         url: this.urlTfl
       });
     }
 
     if (this.config.crsId) {
       this.sendSocketNotification("GET_NR_ARRIVALS_DATA", {
+        instanceId: this.identifier,
         url: this.urlNR,
         apiKey: this.config.ldbws_key
       });
@@ -311,6 +320,7 @@ Module.register("MMM-TFL-Arrivals", {
   // ---------- RECEIVE DATA FROM HELPER ----------
 
   socketNotificationReceived: function (notification, payload) {
+if (payload.instanceId !== this.identifier) return; // ignore others
 
     if (notification === "TFL_ARRIVALS_DATA" && payload.url === this.urlTfl) {
       this.processTfl(payload.data);
