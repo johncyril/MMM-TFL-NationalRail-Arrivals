@@ -15,54 +15,60 @@ module.exports = NodeHelper.create({
     console.log("MMM-TFL-Arrivals helper started ...");
   },
 
-  getTFLTimetable: async function (url, notification, instanceId) {
-    const notif = notification.replace(/^GET_/, "");
+ async getTFLTimetable(url, instanceId) {
     try {
-      console.log("Fetching TFL:", url);
+      console.log(`[TFL][${instanceId}] Fetching`, url);
 
       const { data } = await axios.get(url);
-
-      this.sendSocketNotification(notif, { data, url, instanceId });
-
-    } catch (err) {
-      console.error("TFL error:", err.message);
-      this.sendSocketNotification(notif, { data: null, url, instanceId });
-    }
-  },
-
-  getNRTimetable: async function (url, apiKey, notification, instanceId) {
-    const notif = notification.replace(/^GET_/, "");
-
-    try {
-      console.log("Fetching National Rail:", url);
-
-      const { data } = await axios.get(url, {
-        headers: {
-          "x-apikey": apiKey
-        }
+      this.sendSocketNotification("TFL_ARRIVALS_DATA", {
+        data,
+        instanceId
       });
 
-      this.sendSocketNotification(notif, { data, url, instanceId });
-
     } catch (err) {
-      console.error("NR error:", err.response?.status, err.response?.data);
-      this.sendSocketNotification(notif, { data: null, url, instanceId });
+      console.error(`[TFL][${instanceId}]`, err.message);
+      this.sendSocketNotification("TFL_ARRIVALS_DATA", {
+        data: null,
+        instanceId
+      });
     }
   },
 
-  socketNotificationReceived: function (notification, payload) {
+  async getNRTimetable(url, apiKey, instanceId) {
+    try {
+      console.log(`[NR][${instanceId}] Fetching`, url);
 
-     switch (notification) {
-      case "INIT":
-      this.instances[payload.instanceId] = payload; // store per-instance config
-      break;
+      const { data } = await axios.get(url, {
+        headers: { "x-apikey": apiKey }
+      });
 
-    case "GET_TFL_ARRIVALS_DATA":
-      this.getTFLTimetable(payload.url, notification, payload.instanceId);
-      break;
+      this.sendSocketNotification("NR_ARRIVALS_DATA", {
+        data,
+        instanceId
+      });
 
-    case "GET_NR_ARRIVALS_DATA":
-      this.getNRTimetable(payload.url, payload.apiKey, notification, payload.instanceId);
-     }
-    },
+    } catch (err) {
+      console.error(`[NR][${instanceId}]`, err.response?.status);
+      this.sendSocketNotification("NR_ARRIVALS_DATA", {
+        data: null,
+        instanceId
+      });
+    }
+  },
+
+ socketNotificationReceived(notification, payload) {
+    switch (notification) {
+      case "GET_TFL_ARRIVALS_DATA":
+        this.getTFLTimetable(payload.url, payload.instanceId);
+        break;
+
+      case "GET_NR_ARRIVALS_DATA":
+        this.getNRTimetable(
+          payload.url,
+          payload.apiKey,
+          payload.instanceId
+        );
+        break;
+    }
+  }
 });
