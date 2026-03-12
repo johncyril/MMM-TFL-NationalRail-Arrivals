@@ -20,6 +20,8 @@ Module.register("MMM-TFL-Arrivals", {
     lateThreshold: 2,
     initialLoadDelay: 0, // start delay in milliseconds.
     color: true,
+    delayedColor: "orange",
+    walkingTime: null, // minutes walk to stop/station; null = disabled
     debug: false,
   },
 
@@ -58,9 +60,6 @@ Module.register("MMM-TFL-Arrivals", {
     }
 
     this.scheduleUpdate(this.config.initialLoadDelay);
-
-    // Force initial fetch
-    this.updateInfo();
   },
 
   // 🔄 Send the appropriate request based on which IDs are configured
@@ -93,10 +92,20 @@ Module.register("MMM-TFL-Arrivals", {
   },
 
   getHeader: function () {
-    if (this.tfl.data && this.tfl.data.length > 0) return this.tfl.data[0].stopName;
-    if (this.nr.data && this.nr.data.length > 0) return this.nr.data[0].stopName;
+    if (this.tfl.data && this.tfl.data.length > 0) {
+      let icon;
+      switch (this.tfl.data[0].modeName) {
+        case "bus":  icon = '<i class="fas fa-bus"></i>'; break;
+        case "tube": icon = '<i class="fas fa-subway"></i>'; break;
+        default:     icon = '<i class="fas fa-train"></i>';
+      }
+      return `${icon} ${this.tfl.data[0].stopName} (${this.tfl.data[0].stopLetter})`;
+    }
+    if (this.nr.data && this.nr.data.length > 0) {
+      return `<i class="fas fa-train"></i> ${this.nr.data[0].stopName} (${this.config.crsId})`;
+    }
     return this.config.header;
-},
+  },
 
   getDom: function () {
     const wrapper = document.createElement("div");
@@ -178,8 +187,16 @@ Module.register("MMM-TFL-Arrivals", {
       } else {
         timeCell.innerHTML = mins + " min";
       }
-
       row.appendChild(timeCell);
+
+      if (this.config.walkingTime !== null && this.config.walkingTime !== undefined) {
+        const walkCell = document.createElement("td");
+        const walkColour = this.getWalkingColour(mins);
+        walkCell.innerHTML = '<i class="fas fa-walking"></i>';
+        if (walkColour) walkCell.style.color = walkColour;
+        row.appendChild(walkCell);
+      }
+
       table.appendChild(row);
     }
   },
@@ -205,12 +222,25 @@ Module.register("MMM-TFL-Arrivals", {
 
     // Time
     const timeCell = document.createElement("td");
-    if (arrival.timeToStation < 1) {
-      timeCell.innerHTML = "Due";
+    if (arrival.status === "cancelled") {
+      timeCell.innerHTML = "Cancelled";
+      timeCell.style.color = "red";
+    } else if (arrival.status === "delayed") {
+      const etd = arrival.expectedDeparture;
+      timeCell.innerHTML = /^\d{2}:\d{2}$/.test(etd) ? etd : "Delayed";
+      timeCell.style.color = this.config.delayedColor;
     } else {
-      timeCell.innerHTML = arrival.timeToStation + " min";
+      timeCell.innerHTML = arrival.timeToStation < 1 ? "Due" : arrival.timeToStation + " min";
     }
     row.appendChild(timeCell);
+
+    if (this.config.walkingTime !== null && this.config.walkingTime !== undefined) {
+      const walkCell = document.createElement("td");
+      const walkColour = arrival.status === "cancelled" ? null : this.getWalkingColour(arrival.timeToStation);
+      walkCell.innerHTML = '<i class="fas fa-walking"></i>';
+      if (walkColour) walkCell.style.color = walkColour;
+      row.appendChild(walkCell);
+    }
 
     table.appendChild(row);
   }
@@ -233,6 +263,7 @@ Module.register("MMM-TFL-Arrivals", {
       data: data
         .map(arrival => ({
           stopName: arrival.stationName,
+          stopLetter: arrival.platformName,
           routeName: arrival.lineName,
           direction: arrival.destinationName,
           expectedDeparture: arrival.expectedArrival,
@@ -271,26 +302,30 @@ Module.register("MMM-TFL-Arrivals", {
       const etd = service.etd; // Estimated
       const platform = service.platform || "";
 
-      // Approximate time to station in minutes
-      let timeToStation = 0;
-      if (etd && etd.toLowerCase() !== "on time") {
-        const now = moment();
-        const dep = moment(std, "HH:mm");
-        timeToStation = Math.max(0, dep.diff(now, "minutes"));
-      } else {
-        const dep = moment(std, "HH:mm");
-        const now = moment();
-        timeToStation = Math.max(0, dep.diff(now, "minutes"));
+      // Determine status
+      let status = "ontime";
+      if (etd === "Cancelled") status = "cancelled";
+      else if (etd === "Delayed" || /^\d{2}:\d{2}$/.test(etd)) status = "delayed";
+
+      // Use the estimated time if available, otherwise scheduled (always use std for cancelled)
+      const depTime = (status !== "cancelled" && /^\d{2}:\d{2}$/.test(etd)) ? etd : std;
+      let timeToStation = moment(depTime, "HH:mm").diff(moment(), "minutes");
+      if (timeToStation < 0) {
+        const wrapped = timeToStation + 24 * 60;
+        // If wrapping gives a plausible result (within 4h of the query window) it's a
+        // genuine midnight crossing. Otherwise the train just departed — clamp to 0.
+        timeToStation = wrapped <= 240 ? wrapped : 0;
       }
 
       return {
-      stopName: data.locationName || this.config.crsId, // Use actual station name
-      routeName: std,
-      direction: destination,
-      expectedDeparture: etd,
-      timeToStation,
-      modeName: "train",
-      platform,
+        stopName: data.locationName || this.config.crsId,
+        routeName: std,
+        direction: destination,
+        expectedDeparture: etd,
+        timeToStation,
+        status,
+        modeName: "train",
+        platform,
       };
     }).sort((a, b) => a.timeToStation - b.timeToStation),
   };
@@ -298,6 +333,16 @@ Module.register("MMM-TFL-Arrivals", {
   this.loaded = true;
   this.updateDom(this.config.animationSpeed);
 },
+
+  // Returns a colour based on whether the user can walk to the stop in time.
+  // Returns null if walkingTime is not configured.
+  getWalkingColour: function (minsToDepart) {
+    if (this.config.walkingTime === null || this.config.walkingTime === undefined) return null;
+    const margin = minsToDepart - this.config.walkingTime;
+    if (margin > 1) return "green";
+    if (margin >= 0) return "orange";
+    return "red";
+  },
 
   // ---------- HELPERS ----------
 
