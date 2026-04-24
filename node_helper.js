@@ -8,8 +8,14 @@
 
 const NodeHelper = require("node_helper");
 const axios = require("axios");
+const http = require("http");
+const https = require("https");
 
 const AXIOS_TIMEOUT_MS = 15000;
+
+// Disable keep-alive to prevent stale connection pool errors (ECONNABORTED) after days of uptime
+const httpAgent = new http.Agent({ keepAlive: false });
+const httpsAgent = new https.Agent({ keepAlive: false });
 
 module.exports = NodeHelper.create({
   start: function () {
@@ -26,7 +32,7 @@ module.exports = NodeHelper.create({
     try {
       console.log(`[TFL][${instanceId}] Fetching`, url);
 
-      const { data } = await axios.get(url, { timeout: AXIOS_TIMEOUT_MS });
+      const { data } = await axios.get(url, { timeout: AXIOS_TIMEOUT_MS, httpAgent, httpsAgent });
       this.sendSocketNotification("TFL_ARRIVALS_DATA", {
         data,
         instanceId
@@ -37,6 +43,7 @@ module.exports = NodeHelper.create({
       console.error(`[TFL][${instanceId}]`, detail);
       this.sendSocketNotification("TFL_ARRIVALS_DATA", {
         data: null,
+        error: true,
         instanceId
       });
     } finally {
@@ -55,7 +62,9 @@ module.exports = NodeHelper.create({
 
       const { data } = await axios.get(url, {
         headers: { "x-apikey": apiKey },
-        timeout: AXIOS_TIMEOUT_MS
+        timeout: AXIOS_TIMEOUT_MS,
+        httpAgent,
+        httpsAgent
       });
 
       this.sendSocketNotification("NR_ARRIVALS_DATA", {
@@ -68,6 +77,7 @@ module.exports = NodeHelper.create({
       console.error(`[NR][${instanceId}]`, detail);
       this.sendSocketNotification("NR_ARRIVALS_DATA", {
         data: null,
+        error: true,
         instanceId
       });
     } finally {
