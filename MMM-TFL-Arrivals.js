@@ -135,6 +135,21 @@ Module.register("MMM-TFL-Arrivals", {
       return wrapper;
     }
 
+    const tflEmpty = this.config.naptanId && (!this.tfl.data || this.tfl.data.length === 0);
+    const nrEmpty = this.config.crsId && (!this.nr.data || this.nr.data.length === 0);
+
+    if (tflEmpty && !this.config.crsId) {
+      wrapper.innerHTML = this.tfl.error ? "Error fetching data" : "No data returned";
+      wrapper.className = "dimmed light small";
+      return wrapper;
+    }
+
+    if (nrEmpty && !this.config.naptanId) {
+      wrapper.innerHTML = this.nr.error ? "Error fetching data" : "No data returned";
+      wrapper.className = "dimmed light small";
+      return wrapper;
+    }
+
     // ========================
     //       DISPLAY
     // ========================
@@ -248,11 +263,11 @@ Module.register("MMM-TFL-Arrivals", {
 
   // ---------- PROCESSORS ----------
 
-  processTfl: function (data) {
+  processTfl: function (data, error) {
     if (this.config.debug) Log.info("TFL DATA:", data);
 
-    if (!data || !Array.isArray(data) || data.length === 0) {
-      this.tfl = { data: null, message: "No data returned" };
+    if (error || !data || !Array.isArray(data) || data.length === 0) {
+      this.tfl = { data: null, error: !!error };
       this.loaded = true;
       this.updateDom(this.config.animationSpeed);
       return;
@@ -277,11 +292,11 @@ Module.register("MMM-TFL-Arrivals", {
     this.updateDom(this.config.animationSpeed);
   },
 
- processNr: function (data) {
+ processNr: function (data, error) {
   if (this.config.debug) Log.info("NR RAW DATA:", data);
 
-  if (!data || !data.trainServices) {
-    this.nr = { data: null, message: "No data returned" };
+  if (error || !data || !data.trainServices) {
+    this.nr = { data: null, error: !!error };
     this.loaded = true;
     this.updateDom(this.config.animationSpeed);
     return;
@@ -361,12 +376,12 @@ Module.register("MMM-TFL-Arrivals", {
 if (payload.instanceId !== this.identifier) return; // ignore others
 
     if (notification === "TFL_ARRIVALS_DATA") {
-      this.processTfl(payload.data);
+      this.processTfl(payload.data, payload.error);
       this.scheduleUpdate();
     }
 
     if (notification === "NR_ARRIVALS_DATA") {
-      this.processNr(payload.data);
+      this.processNr(payload.data, payload.error);
       this.scheduleUpdate();
     }
   }
