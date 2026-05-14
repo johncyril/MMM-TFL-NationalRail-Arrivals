@@ -47,10 +47,12 @@ Module.register("MMM-TFL-Arrivals", {
     }
 
     if (this.config.crsId) {
+      const numRows = this.config.limit + this.config.excludedDestinationCrsIds.length * 10;
+      const timeOffset = Math.max(0, (this.config.walkingTime || 0) - 4);
       this.urlNR = encodeURI(
         this.apiBaseNR +
         this.config.crsId +
-        "?numRows=20&timeOffset=0&timeWindow=120"
+        `?numRows=${numRows}&timeOffset=${timeOffset}`
       );
     }
 
